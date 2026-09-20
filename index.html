@@ -252,6 +252,22 @@
       text-align: center;
     }
 
+    #saveMode {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #94a3b8;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    #saveMode input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      cursor: pointer;
+    }
+
     #compatibilityMessage {
       display: none;
       max-width: min(360px, 82vw);
@@ -661,6 +677,10 @@
         <img src="images/play.png" alt="Play">
       </button>
       <div id="dirStatus">Browser saves enabled.</div>
+      <label id="saveMode">
+        <input id="playWithoutSaving" type="checkbox" checked>
+        Play without saving
+      </label>
       <div id="compatibilityMessage" role="alert"></div>
     </div>
   </div>
@@ -713,6 +733,11 @@
 
   <script>
     const CACHE_NAME = 'gd-wasm-cache-github-release-v1';
+
+    const EXPECTED_ASSET_SIZES = {
+      'gd_web.wasm': 97389023,
+      'gd_web.data': 318589952
+    };
 
     const consoleEl = document.getElementById('console');
     const consoleLogOutput = document.getElementById('consoleLogOutput');
@@ -1223,6 +1248,9 @@
     const startScreen =
       document.getElementById('startScreen');
 
+    const playWithoutSaving =
+      document.getElementById('playWithoutSaving');
+
     const abortScreen =
       document.getElementById('abortScreen');
 
@@ -1422,6 +1450,22 @@
             await cache.match(fileName);
 
           if (cachedResponse) {
+            const cachedBuffer =
+              await cachedResponse.arrayBuffer();
+
+            const expectedCachedSize =
+              EXPECTED_ASSET_SIZES[fileName];
+
+            if (
+              expectedCachedSize &&
+              cachedBuffer.byteLength !== expectedCachedSize
+            ) {
+              await cache.delete(fileName);
+              throw new Error(
+                `${fileName} cache is incomplete (${cachedBuffer.byteLength} bytes; expected ${expectedCachedSize}).`
+              );
+            }
+
             updateProgress(
               basePct + weightPct,
               `Loaded ${label} (Cached)`
@@ -1431,7 +1475,7 @@
               `[cache] Using cached version of ${fileName}.`
             );
 
-            return await cachedResponse.arrayBuffer();
+            return cachedBuffer;
           }
 
         } catch (err) {
@@ -1530,6 +1574,18 @@
           combined.buffer;
       }
 
+      const expectedSize =
+        EXPECTED_ASSET_SIZES[fileName];
+
+      if (
+        expectedSize &&
+        buffer.byteLength !== expectedSize
+      ) {
+        throw new Error(
+          `${fileName} was incomplete or mismatched (${buffer.byteLength} bytes; expected ${expectedSize}).`
+        );
+      }
+
       if ('caches' in window) {
         try {
           const cache =
@@ -1574,10 +1630,12 @@
      */
 
     let saveDirHandle = null;
-    let saveStorageEnabled = (
+    const browserStorageAvailable = (
       typeof indexedDB !== 'undefined' &&
       typeof IDBKeyRange !== 'undefined'
     );
+
+    let saveStorageEnabled = false;
 
     const SAVE_DATABASE_NAME = 'gd-wasm-user-saves';
     const SAVE_STORE_NAME = 'files';
@@ -3166,7 +3224,9 @@
 
               } else {
                 say(
-                  '[websave] Saves are RAM-only because browser storage is unavailable.'
+                  playWithoutSaving.checked
+                    ? '[websave] Play-without-saving mode is enabled.'
+                    : '[websave] Saves are RAM-only because browser storage is unavailable.'
                 );
               }
 
@@ -3403,6 +3463,10 @@
           showCompatibilityMessage();
           return;
         }
+
+        saveStorageEnabled =
+          !playWithoutSaving.checked &&
+          browserStorageAvailable;
 
         startScreen.classList.add(
           'hidden'
