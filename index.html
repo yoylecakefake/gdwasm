@@ -261,6 +261,78 @@
       text-align: center;
     }
 
+    #infoBtn {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 2100;
+      width: 34px;
+      height: 34px;
+      border: 1px solid #475569;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.9);
+      color: #cbd5e1;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #infoBtn:hover {
+      background: #334155;
+    }
+
+    #helpDialog {
+      position: fixed;
+      inset: 0;
+      z-index: 5000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.7);
+    }
+
+    #helpDialog.hidden {
+      display: none;
+    }
+
+    .help-box {
+      position: relative;
+      width: min(420px, 92vw);
+      padding: 24px;
+      background: #14161f;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+
+    .help-box h2 {
+      margin: 0 0 14px;
+      color: #fff;
+      font-size: 20px;
+    }
+
+    .help-box ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    #closeHelpBtn {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 22px;
+      cursor: pointer;
+    }
+
+    #saveFileInput {
+      display: none;
+    }
+
     @keyframes playButtonIn {
       from { opacity: 0; transform: translateY(18px) scale(0.92); }
       to { opacity: 1; transform: translateY(0) scale(1); }
@@ -590,6 +662,23 @@
       </button>
       <div id="dirStatus">Browser saves enabled.</div>
       <div id="compatibilityMessage" role="alert"></div>
+    </div>
+  </div>
+
+  <button id="infoBtn" type="button" aria-label="Controls and save help">i</button>
+  <input id="saveFileInput" type="file" accept=".dat" multiple>
+
+  <div id="helpDialog" class="hidden" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-box">
+      <button id="closeHelpBtn" type="button" aria-label="Close help">&times;</button>
+      <h2 id="helpTitle">Controls and Saves</h2>
+      <ul>
+        <li><strong>Ctrl/Cmd + S:</strong> force-save your data.</li>
+        <li><strong>Ctrl/Cmd + O:</strong> import a save file.</li>
+        <li><strong>Mobile two-finger tap:</strong> force-save.</li>
+        <li><strong>Mobile three-finger tap:</strong> import a save file.</li>
+        <li><strong>Mobile long-press on the start screen:</strong> import a save file before playing.</li>
+      </ul>
     </div>
   </div>
 
@@ -2696,6 +2785,195 @@
         syncInProgress = false;
       }
     }
+
+    async function forceBrowserSave() {
+      if (!saveStorageEnabled) {
+        say('[websave] Browser storage is unavailable.');
+        return;
+      }
+
+      if (
+        !window.Module ||
+        !window.Module.FS ||
+        !engineFullyInitialized
+      ) {
+        say('[websave] Save requested before the game finished loading.');
+        return;
+      }
+
+      if (syncInProgress) {
+        say('[websave] A save is already in progress.');
+        return;
+      }
+
+      forceFullSync = true;
+      await syncBrowserSaves();
+      say('[websave] Forced save complete.');
+    }
+
+    function savePathForName(fileName) {
+      const knownPath = [
+        ...knownEngineFiles,
+        ...initialFilesData.map(file => file.path)
+      ].find(path => path.endsWith('/' + fileName));
+
+      return knownPath || '/' + fileName;
+    }
+
+    async function importSaveFiles(fileList) {
+      if (!saveStorageEnabled) {
+        say('[websave] Browser storage is unavailable.');
+        return;
+      }
+
+      const files = Array.from(fileList || []);
+      let imported = 0;
+
+      for (const file of files) {
+        if (!USER_SAVE_NAMES.has(file.name)) {
+          say(`[websave] Ignored unsupported save file: ${file.name}`);
+          continue;
+        }
+
+        const path = savePathForName(file.name);
+        const buffer = await file.arrayBuffer();
+
+        await storeBrowserSave(path, buffer);
+
+        const existing = initialFilesData.find(item => item.path === path);
+
+        if (existing) {
+          existing.buffer = new Uint8Array(buffer);
+        } else {
+          initialFilesData.push({
+            path,
+            buffer: new Uint8Array(buffer)
+          });
+        }
+
+        if (window.Module && window.Module.FS) {
+          const slash = path.lastIndexOf('/');
+          const directory = slash <= 0 ? '/' : path.slice(0, slash);
+
+          if (directory !== '/') {
+            window.Module.FS.mkdirTree(directory);
+          }
+
+          window.Module.FS.writeFile(path, new Uint8Array(buffer));
+        }
+
+        imported++;
+      }
+
+      if (imported > 0) {
+        say(`[websave] Imported ${imported} save file(s).`);
+      }
+    }
+
+    const saveFileInput =
+      document.getElementById('saveFileInput');
+
+    saveFileInput.addEventListener(
+      'change',
+      async () => {
+        try {
+          await importSaveFiles(saveFileInput.files);
+        } catch (e) {
+          say(`[websave] Save import failed: ${e.message || e}`);
+        } finally {
+          saveFileInput.value = '';
+        }
+      }
+    );
+
+    function openSaveImporter() {
+      saveFileInput.click();
+    }
+
+    document.addEventListener('keydown', event => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        forceBrowserSave().catch(e =>
+          say(`[websave] Forced save failed: ${e.message || e}`)
+        );
+      }
+
+      if (event.key.toLowerCase() === 'o') {
+        event.preventDefault();
+        openSaveImporter();
+      }
+    });
+
+    let mobilePressTimer = null;
+
+    startScreen.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'touch') {
+        return;
+      }
+
+      mobilePressTimer = setTimeout(openSaveImporter, 700);
+    });
+
+    startScreen.addEventListener('pointerup', () => {
+      clearTimeout(mobilePressTimer);
+      mobilePressTimer = null;
+    });
+
+    startScreen.addEventListener('pointercancel', () => {
+      clearTimeout(mobilePressTimer);
+      mobilePressTimer = null;
+    });
+
+    document.addEventListener(
+      'touchstart',
+      event => {
+        if (event.touches.length === 3) {
+          openSaveImporter();
+          return;
+        }
+
+        if (event.touches.length !== 2) {
+          return;
+        }
+
+        forceBrowserSave().catch(e =>
+          say(`[websave] Forced save failed: ${e.message || e}`)
+        );
+      },
+      { passive: true }
+    );
+
+    const infoBtn =
+      document.getElementById('infoBtn');
+
+    const helpDialog =
+      document.getElementById('helpDialog');
+
+    const closeHelpBtn =
+      document.getElementById('closeHelpBtn');
+
+    infoBtn.addEventListener(
+      'click',
+      () => helpDialog.classList.remove('hidden')
+    );
+
+    closeHelpBtn.addEventListener(
+      'click',
+      () => helpDialog.classList.add('hidden')
+    );
+
+    helpDialog.addEventListener(
+      'click',
+      event => {
+        if (event.target === helpDialog) {
+          helpDialog.classList.add('hidden');
+        }
+      }
+    );
 
     /*
      * ------------------------------------------------------------------
