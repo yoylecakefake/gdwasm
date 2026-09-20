@@ -1,0 +1,3742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Geometry Dash WASM</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    @font-face {
+      font-family: 'PUSAB';
+      src: url('pusab.otf') format('opentype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+      color: #ddd;
+      font-family: system-ui, -apple-system, monospace;
+      touch-action: none;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000;
+    }
+
+    canvas {
+      max-width: 100%;
+      max-height: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      image-rendering: pixelated;
+      display: block;
+      outline: none;
+      user-select: none;
+    }
+
+    /* Floating Buttons */
+    #floatFsBtn, #mobileKbBtn, #mobileBackBtn, #mobileLogsBtn {
+      position: fixed;
+      z-index: 1000;
+      width: 46px; /* Slightly larger for better touch targets */
+      height: 46px;
+      border-radius: 50%;
+      background: rgba(20, 20, 20, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      backdrop-filter: blur(2px);
+    }
+    
+    #floatFsBtn.visible, #mobileKbBtn.visible, 
+    #mobileBackBtn.visible, #mobileLogsBtn.visible { 
+      display: flex; 
+    }
+
+    #mobileBackBtn { top: 12px; left: 12px; }
+    #floatFsBtn { top: 12px; right: 12px; }
+    #mobileKbBtn { top: 70px; right: 12px; }
+    #mobileLogsBtn { top: 128px; right: 12px; }
+
+    #mobileKbBtn.active {
+      background: rgba(37, 99, 235, 0.75);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    #floatFsBtn svg, #mobileKbBtn svg, #mobileBackBtn svg, #mobileLogsBtn svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: #e0e0e0;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    #mobileKbInput {
+      position: absolute;
+      top: -9999px;
+      left: -9999px;
+      opacity: 0;
+    }
+
+    /* Overlays */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    /* 
+      FIXED SCROLL ISSUE: 
+      Removed flex-center. Using block layout with padding and auto margins 
+      allows the panel to be centered when small, but scroll naturally when large.
+    */
+    #startScreen {
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .options-panel {
+      background: #14161f;
+      border: 2px solid #0078ff;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 520px;
+      width: 100%;
+      margin: 0 auto; /* Centers the box horizontally */
+      box-shadow: 0 8px 32px rgba(0, 120, 255, 0.2);
+    }
+
+    .options-panel h1 {
+      margin-top: 0;
+      text-align: center;
+      color: #fff;
+      font-size: 22px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      text-shadow: 0 0 10px #0078ff;
+      margin-bottom: 24px;
+    }
+
+    .opt-group {
+      margin-bottom: 16px;
+    }
+
+    .opt-group label {
+      display: block;
+      font-size: 13px;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+
+    /* Enhanced inputs for mobile scaling */
+    .opt-group input[type="text"],
+    .opt-group input[type="file"] {
+      width: 100%;
+      padding: 10px 12px;
+      background: #090a0f;
+      border: 1px solid #282c3d;
+      color: #fff;
+      border-radius: 6px;
+      /* 16px font size prevents iOS Safari from auto-zooming on focus */
+      font-size: 16px; 
+    }
+
+    .btn-secondary {
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #334155;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s;
+      width: 100%;
+    }
+
+    .btn-secondary:hover {
+      background: #334155;
+    }
+
+    .cache-status-box {
+      background: #090a0f;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: #94a3b8;
+      gap: 12px;
+    }
+
+    #playBtn {
+      width: min(320px, 72vw);
+      padding: 0;
+      background: transparent;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      animation: playButtonIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+      transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #playBtn:hover {
+      filter: none;
+    }
+
+    #playBtn:active {
+      transform: scale(0.9);
+      transition-duration: 0.12s;
+    }
+
+    #playBtn img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    #startControls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    #selectDirBtn {
+      width: auto;
+      min-width: 190px;
+      padding: 9px 14px;
+      background: rgba(30, 41, 59, 0.9);
+      color: #cbd5e1;
+      border-color: #475569;
+    }
+
+    #selectDirBtn:hover {
+      background: #334155;
+    }
+
+    #dirStatus {
+      max-width: min(320px, 80vw);
+      color: #94a3b8;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    @keyframes playButtonIn {
+      from { opacity: 0; transform: translateY(18px) scale(0.92); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Checkbox Group Alignments */
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+    }
+    
+    .checkbox-group input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+    
+    .checkbox-group label {
+      margin: 0;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .divider-text {
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+      margin: 20px 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    a {
+      color: #94a4cb;
+      font-size: 15px;
+    }
+
+    /* Loading Overlay */
+    #loadingOverlay {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      container-type: size;
+    }
+
+    #loadingOverlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .robtop-logo {
+      height: 22cqh;
+      object-fit: contain;
+      margin-bottom: 3cqh;
+      filter: drop-shadow(0px 0.4cqh 0.8cqh rgba(0,0,0,0.6));
+    }
+
+    .gd-logo {
+      width: 72cqw;
+      object-fit: contain;
+      margin-bottom: 4cqh;
+      filter: drop-shadow(0px 0.7cqh 1.1cqh rgba(0,0,0,0.8));
+    }
+
+    .bar-container {
+      width: 39cqw;
+      height: 2.5cqh;
+      background: rgba(255,255,255,0.1);
+      border: 0.3cqh solid rgba(255,255,255,0.4);
+      border-radius: 9cqh;
+      padding: 0.2cqh;
+      overflow: hidden;
+    }
+
+    #fillBar {
+      width: 0%;
+      height: 100%;
+      background: #ffffff;
+      border-radius: 9cqh;
+      transition: width 0.3s ease-out;
+    }
+
+    #statusText {
+      margin-top: 1.5cqh;
+      font-family: 'PUSAB', system-ui, sans-serif;
+      font-size: 2cqw;
+      font-weight: normal;
+      color: rgba(255,255,255,0.7);
+      text-transform: uppercase;
+      text-align: center;
+      letter-spacing: 0.1cqw;
+    }
+
+    /* Mobile Consoles/Aborts */
+    #abortScreen {
+      background: rgba(8, 3, 6, 0.94);
+      z-index: 4000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .abort-box {
+      background: #241217;
+      border: 1px solid #8f3f4d;
+      padding: 28px;
+      border-radius: 6px;
+      text-align: center;
+      max-width: 700px;
+      width: 90vw;
+      animation: crashPanelIn 0.2s ease-out both;
+    }
+
+    .abort-box h2 {
+      color: #f87171;
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: clamp(20px, 4vw, 30px);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    #abortReloadCountdown {
+      color: #fda4af;
+      font-size: 13px;
+      margin: 18px 0 0;
+    }
+
+    .abort-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .abort-actions button {
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      padding: 10px 16px;
+      color: #fff;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.2s ease, filter 0.2s ease;
+    }
+
+    .abort-actions button:hover {
+      transform: translateY(-2px);
+      filter: brightness(1.15);
+    }
+
+    #reloadGameBtn {
+      background: #dc2626;
+    }
+
+    #ignoreAbortBtn {
+      background: #3f1d2a;
+    }
+
+    @keyframes crashPanelIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .abort-logs {
+      max-height: 220px;
+      overflow-y: auto;
+      background: #110303;
+      border: 1px solid #7f1d1d;
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 12px;
+      text-align: left;
+      padding: 10px;
+      margin-bottom: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-radius: 4px;
+    }
+
+    #abortMessage {
+      color: #fca5a5;
+      font-size: 15px;
+      word-wrap: break-word;
+      font-family: monospace;
+    }
+
+    #console {
+      display: none;
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      height: 220px;
+      z-index: 3000;
+      background: rgba(10, 11, 16, 0.96);
+      border: 1px solid #0078ff;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #38bdf8;
+      backdrop-filter: blur(4px);
+      overflow: hidden;
+    }
+
+    #console.visible {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #consoleToolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      background: rgba(20, 24, 34, 0.98);
+      border-bottom: 1px solid #28344a;
+      color: #cbd5e1;
+      font-weight: bold;
+    }
+
+    #consoleToolbar select,
+    #consoleToolbar button {
+      background: #090a0f;
+      color: #ddd;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font: inherit;
+    }
+
+    #consoleToolbar select {
+      min-width: 150px;
+      flex: 1;
+    }
+
+    #consoleToolbar button {
+      cursor: pointer;
+    }
+
+    #consoleLogOutput {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+
+<body>
+
+  <button id="floatFsBtn" title="Return to fullscreen" type="button" aria-label="Return to fullscreen">
+    <svg viewBox="0 0 24 24">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+      <path d="M16 3h3a2 2 0 0 1 2 2v3"></path>
+      <path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+    </svg>
+  </button>
+
+  <button id="mobileKbBtn" title="Show keyboard" type="button" aria-label="Show keyboard">
+    <svg viewBox="0 0 24 24">
+      <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+      <line x1="6" y1="9" x2="6.01" y2="9"></line>
+      <line x1="10" y1="9" x2="10.01" y2="9"></line>
+      <line x1="14" y1="9" x2="14.01" y2="9"></line>
+      <line x1="18" y1="9" x2="18.01" y2="9"></line>
+      <line x1="6" y1="13" x2="6.01" y2="13"></line>
+      <line x1="10" y1="13" x2="10.01" y2="13"></line>
+      <line x1="14" y1="13" x2="14.01" y2="13"></line>
+      <line x1="18" y1="13" x2="18.01" y2="13"></line>
+      <line x1="8" y1="16.5" x2="16" y2="16.5"></line>
+    </svg>
+  </button>
+  
+  <button id="mobileBackBtn" title="Go Back" type="button" aria-label="Go Back">
+    <svg viewBox="0 0 24 24">
+      <line x1="19" y1="12" x2="5" y2="12"></line>
+      <polyline points="12 19 5 12 12 5"></polyline>
+    </svg>
+  </button>
+  
+  <button id="mobileLogsBtn" title="Show Logs" type="button" aria-label="Show Logs">
+    <svg viewBox="0 0 24 24">
+      <path d="M4 6h16M4 12h16M4 18h16"></path>
+    </svg>
+  </button>
+
+  <input id="mobileKbInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off"
+    spellcheck="false" tabindex="-1" aria-hidden="true">
+
+
+  <div id="app">
+    <canvas id="canvas" width="1920" height="1080"></canvas>
+
+    <div id="loadingOverlay" class="hidden">
+      <img src="images/logo.png" class="robtop-logo" alt="Logo" onerror="this.style.display='none'">
+      <img src="images/gd.png" class="gd-logo" alt="Geometry Dash" onerror="this.style.display='none'">
+
+      <div class="bar-container">
+        <div id="fillBar"></div>
+      </div>
+
+      <div id="statusText">Loading...</div>
+    </div>
+  </div>
+
+  <div id="startScreen" class="overlay">
+    <div id="startControls">
+      <button id="playBtn" type="button" aria-label="Play">
+        <img src="images/play.png" alt="Play">
+      </button>
+      <div id="dirStatus">Browser saves enabled.</div>
+    </div>
+  </div>
+
+  <div id="abortScreen" class="overlay hidden">
+    <div class="abort-box">
+      <h2>Engine Aborted/Crashed</h2>
+      <div id="abortLogs" class="abort-logs"></div>
+      <div id="abortMessage">
+        A native crash or abort() was called.
+      </div>
+      <p id="abortReloadCountdown">Reloading game in 10 seconds...</p>
+      <div class="abort-actions">
+        <button id="reloadGameBtn" type="button">Reload Game</button>
+        <button id="ignoreAbortBtn" type="button">Ignore</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="console">
+    <div id="consoleToolbar">
+      <label for="logFilter">Log:</label>
+
+      <select id="logFilter">
+        <option value="*">All logs</option>
+      </select>
+
+      <button type="button" id="clearLogBtn">Clear</button>
+    </div>
+
+    <div id="consoleLogOutput"></div>
+  </div>
+
+  <script>
+    const CACHE_NAME = 'gd-wasm-cache-github-release-v1';
+
+    const consoleEl = document.getElementById('console');
+    const consoleLogOutput = document.getElementById('consoleLogOutput');
+    const logFilter = document.getElementById('logFilter');
+    const clearLogBtn = document.getElementById('clearLogBtn');
+
+    window.gdLogRaw = [];
+
+    let logQueue = [];
+    let logScheduled = false;
+
+    const MAX_LOG_LINES = 1000;
+    const logNames = new Set();
+
+    function getLogName(str) {
+      const match = String(str).match(/^\[([^\]]+)\]/);
+      return match ? match[1] : 'system';
+    }
+
+    function refreshLogFilter() {
+      const selected = logFilter.value;
+      const names = Array.from(logNames)
+        .sort((a, b) => a.localeCompare(b));
+
+      while (logFilter.options.length > 1) {
+        logFilter.remove(1);
+      }
+
+      for (const name of names) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = `[${name}]`;
+        logFilter.appendChild(option);
+      }
+
+      logFilter.value =
+        (selected === '*' || logNames.has(selected))
+          ? selected
+          : '*';
+    }
+
+    function renderLogs(forceBottom) {
+      const selected = logFilter.value;
+      const frag = document.createDocumentFragment();
+
+      for (const str of window.gdLogRaw) {
+        if (selected !== '*' && getLogName(str) !== selected) {
+          continue;
+        }
+
+        const line = document.createElement('div');
+        line.textContent = str;
+        frag.appendChild(line);
+      }
+
+      consoleLogOutput.textContent = '';
+      consoleLogOutput.appendChild(frag);
+
+      if (forceBottom) {
+        consoleLogOutput.scrollTop =
+          consoleLogOutput.scrollHeight;
+      }
+    }
+
+    function flushLog() {
+      logScheduled = false;
+
+      if (!logQueue.length) {
+        return;
+      }
+
+      logQueue = [];
+
+      refreshLogFilter();
+      renderLogs(true);
+    }
+
+    function say(msg) {
+      const str = String(msg);
+
+      console.log(str);
+
+      window.gdLogRaw.push(str);
+
+      if (window.gdLogRaw.length > MAX_LOG_LINES) {
+        window.gdLogRaw.splice(
+          0,
+          window.gdLogRaw.length - MAX_LOG_LINES
+        );
+      }
+
+      logNames.add(getLogName(str));
+      logQueue.push(str);
+
+      if (!logScheduled) {
+        logScheduled = true;
+        requestAnimationFrame(flushLog);
+      }
+
+      if (str.includes('Aborted(')) {
+        triggerAbort(str);
+      }
+    }
+
+    logFilter.addEventListener('change', () => {
+      renderLogs(true);
+    });
+
+    clearLogBtn.addEventListener('click', () => {
+      window.gdLogRaw.length = 0;
+      logQueue = [];
+      renderLogs(false);
+    });
+    
+    // Push an initial state so the first back press doesn't exit the page
+    window.history.pushState({ noback: true }, '');
+    
+    window.addEventListener('popstate', function(e) {
+      if (window.__gdInputReady && window.Module) {
+        var q = Module.gdInputQueue;
+        var lp = 1 | (0x01 << 16); // Escape scan code
+        
+        // Push Escape Keydown (0x100) and Keyup (0x101) directly to the engine
+        q.push([0x100, 0x1B, lp]);
+        q.push([0x101, 0x1B, lp | -1073741824]);
+      }
+      
+      // Re-push the dummy state to intercept the next back button press
+      window.history.pushState({ noback: true }, '');
+    });
+
+
+    /*
+     * ------------------------------------------------------------------
+     * NETWORK PROXY
+     * ------------------------------------------------------------------
+     */
+
+    const GD_PROXY_PREFIX =
+      'https://gdwasmproxy.sutinognic.workers.dev/proxy.php?url=';
+
+    const ASSET_PROXY_PREFIX =
+      'https://gdproxy.temporeal918.workers.dev/?url=';
+
+    let activeProxyPrefix = GD_PROXY_PREFIX;
+
+    function formatProxyUrl(originalUrl, proxyPrefix) {
+      const urlStr =
+        (typeof originalUrl === 'object' && originalUrl.url)
+          ? originalUrl.url
+          : String(originalUrl);
+
+      let actualTarget = urlStr;
+
+      if (urlStr.includes('/__proxy?url=')) {
+        const encodedPart =
+          urlStr.split('/__proxy?url=')[1];
+
+        try {
+          actualTarget = decodeURIComponent(encodedPart);
+        } catch (e) {
+          actualTarget = encodedPart;
+        }
+
+      } else if (urlStr.startsWith('__proxy?url=')) {
+        const encodedPart =
+          urlStr.split('__proxy?url=')[1];
+
+        try {
+          actualTarget = decodeURIComponent(encodedPart);
+        } catch (e) {
+          actualTarget = encodedPart;
+        }
+      }
+
+      actualTarget =
+        actualTarget.replace(/^\/+http/, 'http');
+
+      const isGameDomain =
+        actualTarget.includes('boomlings.com') ||
+        actualTarget.includes('geometrydash.com') ||
+        actualTarget.includes('robtopgames.org') ||
+        actualTarget.includes('audio.ngfiles') ||
+        actualTarget.includes('geometrydashfiles');
+
+      if (isGameDomain) {
+        if (!proxyPrefix) {
+          return actualTarget;
+        }
+
+        let targetUrl;
+
+        const cleanPrefix = proxyPrefix.trim();
+        const cleanTarget =
+          actualTarget.replace(/^\/+/, '');
+
+        if (
+          cleanPrefix.endsWith('?') ||
+          cleanPrefix.endsWith('=')
+        ) {
+          targetUrl =
+            cleanPrefix + cleanTarget;
+
+        } else if (cleanPrefix.endsWith('/')) {
+          targetUrl =
+            cleanPrefix + cleanTarget;
+
+        } else {
+          targetUrl =
+            cleanPrefix + '/' + cleanTarget;
+        }
+
+        say(
+          `[proxy] Intercepted game request: ${cleanTarget} -> ${targetUrl}`
+        );
+
+        return targetUrl;
+      }
+
+      return actualTarget;
+    }
+
+    const nativeFetch = window.fetch;
+
+    window.fetch = function(input, init) {
+      init = init || {};
+      if (init.body) { init.duplex = init.duplex || 'half'; }
+      if (typeof input === 'string') {
+        input =
+          formatProxyUrl(
+            input,
+            activeProxyPrefix
+          );
+
+      } else if (input && input.url) {
+        input =
+          new Request(
+            formatProxyUrl(
+              input.url,
+              activeProxyPrefix
+            ),
+            init
+          );
+      }
+      return nativeFetch.call(this, input, init);
+    };
+
+    const nativeXhrOpen =
+      XMLHttpRequest.prototype.open;
+
+    XMLHttpRequest.prototype.open =
+      function(method, url, ...args) {
+        if (typeof url === 'string') {
+          url =
+            formatProxyUrl(
+              url,
+              activeProxyPrefix
+            );
+        }
+
+        return nativeXhrOpen.call(
+          this,
+          method,
+          url,
+          ...args
+        );
+      };
+
+    document.addEventListener(
+      'keydown',
+      function(e) {
+        if (
+          e.ctrlKey &&
+          e.altKey &&
+          e.shiftKey
+        ) {
+          e.preventDefault();
+
+          consoleEl.classList.toggle('visible');
+
+          say(
+            '[system] Toggled log console display.'
+          );
+        }
+      }
+    );
+
+    /*
+     * ------------------------------------------------------------------
+     * FULLSCREEN
+     * ------------------------------------------------------------------
+     */
+
+    const fsBtn =
+      document.getElementById('floatFsBtn');
+
+    function isFullscreen() {
+      return !!(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement
+      );
+    }
+
+    function updateFsBtnVisibility() {
+      fsBtn.classList.toggle('visible', !isFullscreen());
+    }
+    updateFsBtnVisibility(); // Call immediately on load
+
+
+    async function requestFullscreenSafe() {
+      const doc = document.documentElement;
+
+      try {
+        if (doc.requestFullscreen) {
+          await doc.requestFullscreen();
+
+        } else if (doc.webkitRequestFullscreen) {
+          await doc.webkitRequestFullscreen();
+        }
+
+        if (
+          navigator.keyboard &&
+          navigator.keyboard.lock
+        ) {
+          await navigator.keyboard.lock(['Escape']);
+        }
+
+      } catch (e) {
+        console.warn(
+          "Fullscreen or Keyboard Lock failed",
+          e
+        );
+      }
+    }
+
+    fsBtn.addEventListener(
+      'click',
+      requestFullscreenSafe
+    );
+
+    [
+      'fullscreenchange',
+      'webkitfullscreenchange',
+      'mozfullscreenchange'
+    ].forEach(evt => {
+      document.addEventListener(
+        evt,
+        updateFsBtnVisibility
+      );
+    });
+
+    /*
+     * ------------------------------------------------------------------
+     * MOBILE KEYBOARD
+     * ------------------------------------------------------------------
+     * Shows a button that focuses a hidden text input, which is the
+     * standard way to summon the OS on-screen keyboard. Visible only on
+     * devices that look touch/mobile (coarse pointer + touch support);
+     * hidden permanently the moment a real hardware keydown is observed
+     * (a keydown that didn't originate from the hidden input can only
+     * come from a physical keyboard, since virtual keyboards require a
+     * focused editable element to send input at all).
+     */
+     
+    const kbBtn = document.getElementById('mobileKbBtn');
+    const kbInput = document.getElementById('mobileKbInput');
+    let kbConfirmedPhysical = false;
+
+    function hasCoarsePointer() {
+      return !!(
+        window.matchMedia &&
+        window.matchMedia('(pointer: coarse)').matches
+      );
+    }
+
+    function hasTouchSupport() {
+      return (
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0
+      );
+    }
+    document.getElementById('mobileBackBtn').addEventListener('click', function() {
+      if (window.__gdInputReady && window.Module) {
+        var q = Module.gdInputQueue;
+        var lp = 1 | (0x01 << 16); // Escape scan code
+        
+        // Push Escape Keydown (0x100) and Keyup (0x101) directly to the engine
+        q.push([0x100, 0x1B, lp]);
+        q.push([0x101, 0x1B, lp | -1073741824]);
+      }
+    });
+
+    let forceShowKb = false; // Add this new variable
+    
+    function updateKbBtnVisibility() {
+      const likelyMobile = hasTouchSupport() && hasCoarsePointer();
+    
+      kbBtn.classList.toggle(
+        'visible',
+        forceShowKb || (likelyMobile && !kbConfirmedPhysical) // Update this condition
+      );
+    }
+
+    let lastBlurTime = 0;
+    
+    kbInput.addEventListener('blur', function() {
+      kbBtn.classList.remove('active');
+      lastBlurTime = Date.now();
+    });
+    
+    kbBtn.addEventListener('click', function() {
+      // If the input lost focus within the last 200ms, the user tapped this button to close it.
+      if (Date.now() - lastBlurTime < 200) {
+        return; 
+      }
+      
+      if (document.activeElement === kbInput) {
+        kbInput.blur();
+      } else {
+        kbInput.focus({ preventScroll: true });
+      }
+    });
+
+    kbInput.addEventListener('focus', function() {
+      kbBtn.classList.add('active');
+    });
+    
+        kbInput.addEventListener('input', function(e) {
+          if (!window.__gdInputReady || !window.Module) return;
+        
+          var q = Module.gdInputQueue;
+        
+          if (e.inputType === 'deleteContentBackward' || e.inputType === 'deleteContentForward') {
+            q.push([0x100, 0x08, 1 | (0x0E << 16)]); // Backspace Keydown
+            q.push([0x101, 0x08, 1 | (0x0E << 16) | -1073741824]); // Backspace Keyup
+          } else if (e.inputType === 'insertLineBreak' || (e.data && e.data === '\n')) {
+            q.push([0x100, 0x0D, 1 | (0x1C << 16)]); // Enter Keydown
+            q.push([0x101, 0x0D, 1 | (0x1C << 16) | -1073741824]); // Enter Keyup
+          } else if (e.data) {
+            for (let i = 0; i < e.data.length; i++) {
+              const charCode = e.data.charCodeAt(i);
+              const vkCode = e.data[i].toUpperCase().charCodeAt(0);
+        
+              q.push([0x100, vkCode, 1]); // Generic Keydown
+              q.push([0x0102, charCode, 1]); // Send Character to Game
+              q.push([0x101, vkCode, 1 | -1073741824]); // Generic Keyup
+            }
+          }
+        
+          // Clear the input so backspace continues to work on empty lines
+          kbInput.value = '';
+        });
+
+
+    window.addEventListener(
+      'keydown',
+      function(e) {
+        if (document.activeElement !== kbInput) {
+          kbConfirmedPhysical = true;
+          updateKbBtnVisibility();
+        }
+      },
+      true
+    );
+
+    if (window.matchMedia) {
+      const pointerQuery =
+        window.matchMedia('(pointer: coarse)');
+      const onPointerChange =
+        () => updateKbBtnVisibility();
+
+      if (pointerQuery.addEventListener) {
+        pointerQuery.addEventListener(
+          'change',
+          onPointerChange
+        );
+      } else if (pointerQuery.addListener) {
+        pointerQuery.addListener(onPointerChange);
+      }
+    }
+
+    updateKbBtnVisibility();
+    
+    document.getElementById('mobileLogsBtn').addEventListener('click', function() {
+      const consoleEl = document.getElementById('console');
+      consoleEl.classList.toggle('visible');
+      say('[system] Toggled log console display via mobile button.');
+    });
+
+
+
+    /*
+     * ------------------------------------------------------------------
+     * UI / LOADING
+     * ------------------------------------------------------------------
+     */
+
+    const fillBar =
+      document.getElementById('fillBar');
+
+    const statusText =
+      document.getElementById('statusText');
+
+    const loadingOverlay =
+      document.getElementById('loadingOverlay');
+
+    const startScreen =
+      document.getElementById('startScreen');
+
+    const abortScreen =
+      document.getElementById('abortScreen');
+
+    const abortMessage =
+      document.getElementById('abortMessage');
+
+    const abortReloadCountdown =
+      document.getElementById('abortReloadCountdown');
+
+    const reloadGameBtn =
+      document.getElementById('reloadGameBtn');
+
+    const abortLogs =
+      document.getElementById('abortLogs');
+
+    const cacheStatusText =
+      document.getElementById('cacheStatusText');
+
+    function updateProgress(pct, status) {
+      fillBar.style.width =
+        Math.min(
+          100,
+          Math.max(0, pct)
+        ) + '%';
+
+      if (status) {
+        statusText.textContent = status;
+      }
+    }
+
+    let isEngineAborted = false;
+    let lastAbortReason = null;
+    let abortIgnored = false;
+    let crashReloadTimer = null;
+
+    function reloadGame() {
+      if (crashReloadTimer) {
+        clearInterval(crashReloadTimer);
+        crashReloadTimer = null;
+      }
+
+      window.location.reload();
+    }
+
+    function scheduleCrashReload() {
+      let secondsRemaining = 10;
+
+      if (crashReloadTimer) {
+        clearInterval(crashReloadTimer);
+      }
+
+      abortReloadCountdown.textContent =
+        `Reloading game in ${secondsRemaining} seconds...`;
+
+      crashReloadTimer = setInterval(() => {
+        secondsRemaining -= 1;
+
+        if (secondsRemaining <= 0) {
+          reloadGame();
+          return;
+        }
+
+        abortReloadCountdown.textContent =
+          `Reloading game in ${secondsRemaining} seconds...`;
+      }, 1000);
+    }
+
+    function triggerAbort(reason) {
+      reason = reason || "Unknown native crash.";
+
+      // If this exact error was previously ignored, show it again
+      // only when it gets logged again as a new error.
+      if (
+          isEngineAborted ||
+          (abortIgnored && reason === lastAbortReason)
+      ) {
+          return;
+      }
+
+      isEngineAborted = true;
+      abortIgnored = false;
+      lastAbortReason = reason;
+
+      loadingOverlay.classList.add('hidden');
+      abortScreen.classList.remove('hidden');
+
+      abortMessage.textContent = reason;
+      scheduleCrashReload();
+
+      if (abortLogs) {
+          abortLogs.textContent =
+          window.gdLogRaw.join('\n');
+
+          abortLogs.scrollTop =
+          abortLogs.scrollHeight;
+      }
+
+      say(
+          '[fatal] Engine halted due to a crash.'
+      );
+    }
+
+    const ignoreAbortBtn = document.getElementById('ignoreAbortBtn');
+
+    if (reloadGameBtn) {
+      reloadGameBtn.addEventListener('click', reloadGame);
+    }
+
+    if (ignoreAbortBtn) {
+      ignoreAbortBtn.addEventListener('click', () => {
+          abortIgnored = true;
+          isEngineAborted = false;
+
+          abortScreen.classList.add('hidden');
+      });
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * CACHE
+     * ------------------------------------------------------------------
+     */
+
+    async function checkCacheState() {
+      if (!cacheStatusText) {
+        return;
+      }
+
+      if (!('caches' in window)) {
+        cacheStatusText.textContent =
+          "Cache: API unsupported";
+        return;
+      }
+
+      try {
+        const cache =
+          await caches.open(CACHE_NAME);
+
+        const wasmRes =
+          await cache.match('gd_web.wasm');
+
+        const dataRes =
+          await cache.match('gd_web.data');
+
+        if (wasmRes && dataRes) {
+          cacheStatusText.textContent =
+            "Cache: Ready! (Setting a file url or uplading a diffrent file will overwrite the cache)";
+        } else {
+          cacheStatusText.textContent =
+            "Cache: Empty";
+        }
+
+      } catch (e) {
+        cacheStatusText.textContent =
+          "Cache: Ready";
+      }
+    }
+
+    checkCacheState();
+
+    /*
+     * ------------------------------------------------------------------
+     * ENGINE ASSET LOADING
+     * ------------------------------------------------------------------
+     */
+
+    async function fetchAsset(
+      fileName,
+      targetUrl,
+      label,
+      basePct,
+      weightPct
+    ) {
+      if ('caches' in window) {
+        try {
+          const cache =
+            await caches.open(CACHE_NAME);
+
+          const cachedResponse =
+            await cache.match(fileName);
+
+          if (cachedResponse) {
+            updateProgress(
+              basePct + weightPct,
+              `Loaded ${label} (Cached)`
+            );
+
+            say(
+              `[cache] Using cached version of ${fileName}.`
+            );
+
+            return await cachedResponse.arrayBuffer();
+          }
+
+        } catch (err) {
+          say(
+            `[cache] Warning reading cache: ${err.message}`
+          );
+        }
+      }
+
+      if (!targetUrl) {
+        throw new Error(`No URL provided for ${fileName} and it is not cached.`)
+      }
+
+      say(
+        `Fetching ${fileName} from ${targetUrl}...`
+      );
+
+      const response =
+        await nativeFetch(targetUrl);
+
+      if (!response.ok) {
+        throw new Error(
+          `HTTP ${response.status} when downloading ${fileName}`
+        );
+      }
+
+      const contentLength =
+        response.headers.get('content-length');
+
+      let buffer;
+
+      if (!response.body) {
+        buffer =
+          await response.arrayBuffer();
+      } else {
+        const total = contentLength
+          ? parseInt(contentLength, 10)
+          : 0;
+
+        let loaded = 0;
+        const reader = response.body.getReader();
+        const chunks = [];
+
+        while (true) {
+          const {
+            done,
+            value
+          } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          chunks.push(value);
+          loaded += value.length;
+
+          const mbLoaded =
+            (loaded / (1024 * 1024)).toFixed(1);
+
+          if (total > 0) {
+            const chunkPct =
+              Math.round(
+                (loaded / total) * weightPct
+              );
+
+            const mbTotal =
+              (total / (1024 * 1024)).toFixed(1);
+
+            updateProgress(
+              basePct + chunkPct,
+              `Fetching ${label} (${mbLoaded} MB / ${mbTotal} MB)`
+            );
+          } else {
+            updateProgress(
+              basePct,
+              `Fetching ${label} (${mbLoaded} MB)`
+            );
+          }
+        }
+
+        const combined =
+          new Uint8Array(loaded);
+
+        let offset = 0;
+
+        for (const chunk of chunks) {
+          combined.set(
+            chunk,
+            offset
+          );
+
+          offset += chunk.length;
+        }
+
+        buffer =
+          combined.buffer;
+      }
+
+      if ('caches' in window) {
+        try {
+          const cache =
+            await caches.open(CACHE_NAME);
+
+          await cache.put(
+            fileName,
+            new Response(buffer.slice(0))
+          );
+
+          say(
+            `[cache] Saved ${fileName} to local cache.`
+          );
+
+        } catch (err) {
+          say(
+            `[cache] Failed saving ${fileName} to cache.`
+          );
+        }
+      }
+
+      updateProgress(
+        basePct + weightPct,
+        `Loaded ${label}`
+      );
+
+      return buffer;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * NATIVE SAVE DIRECTORY
+     *
+     * Important:
+     *
+     * 1. The engine filesystem is scanned BEFORE user files are restored.
+     * 2. Every file present at that moment becomes a CORE FILE.
+     * 3. Core files are NEVER written to the user's save directory.
+     * 4. User files are then restored.
+     * 5. Files created after initialization are eligible for saving.
+     * ------------------------------------------------------------------
+     */
+
+    let saveDirHandle = null;
+    let saveStorageEnabled = true;
+
+    const SAVE_DATABASE_NAME = 'gd-wasm-user-saves';
+    const SAVE_STORE_NAME = 'files';
+    const USER_SAVE_NAMES = new Set([
+      'CCGameManager.dat',
+      'CCLocalLevels.dat',
+      'CCGameList.dat',
+      'CCAccountBackup.dat'
+    ]);
+
+    function isUserSavePath(path) {
+      const fileName = path.split('/').pop();
+      return USER_SAVE_NAMES.has(fileName);
+    }
+
+    function openSaveDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(
+          SAVE_DATABASE_NAME,
+          1
+        );
+
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore(
+            SAVE_STORE_NAME,
+            { keyPath: 'path' }
+          );
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function loadBrowserSaves() {
+      const database = await openSaveDatabase();
+
+      try {
+        const records = await new Promise((resolve, reject) => {
+          const request = database
+            .transaction(SAVE_STORE_NAME, 'readonly')
+            .objectStore(SAVE_STORE_NAME)
+            .getAll();
+
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+        });
+
+        initialFilesData = records.map(record => ({
+          path: record.path,
+          buffer: new Uint8Array(record.buffer)
+        }));
+
+        say(
+          `[websave] Loaded ${initialFilesData.length} browser save file(s).`
+        );
+      } finally {
+        database.close();
+      }
+    }
+
+    async function storeBrowserSave(path, data) {
+      const database = await openSaveDatabase();
+
+      try {
+        await new Promise((resolve, reject) => {
+          const transaction = database.transaction(
+            SAVE_STORE_NAME,
+            'readwrite'
+          );
+
+          transaction.objectStore(SAVE_STORE_NAME).put({
+            path,
+            buffer: new Uint8Array(data)
+          });
+
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+      } finally {
+        database.close();
+      }
+    }
+
+    async function deleteBrowserSave(path) {
+      const database = await openSaveDatabase();
+
+      try {
+        await new Promise((resolve, reject) => {
+          const transaction = database.transaction(
+            SAVE_STORE_NAME,
+            'readwrite'
+          );
+
+          transaction.objectStore(SAVE_STORE_NAME).delete(path);
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+      } finally {
+        database.close();
+      }
+    }
+
+    let initialFilesData = [];
+
+    const lastSyncedMeta =
+      new Map();
+
+    const knownEngineFiles =
+      new Set();
+
+    /*
+     * Every path existing in the original engine filesystem before
+     * the user's directory is restored.
+     */
+    const coreEngineFiles =
+      new Set();
+
+    let coreFilesystemInitialized = false;
+    let userFolderRestored = false;
+    let engineFullyInitialized = false;
+
+    let syncInProgress = false;
+    let saveSyncTimer = null;
+    let forceFullSync = false;
+
+    /*
+     * Yield occasionally while scanning large filesystems.
+     *
+     * Around 10K files can otherwise monopolize the browser's main
+     * thread for too long.
+     */
+    async function yieldToBrowser() {
+      await new Promise(resolve => {
+        setTimeout(resolve, 0);
+      });
+    }
+
+    /*
+     * Read the user's physical directory.
+     *
+     * This happens separately from the engine filesystem scan so that
+     * the two concepts never get mixed together.
+     */
+    async function readDirRecursive(
+      dirHandle,
+      relPath,
+      filesData
+    ) {
+      for await (const entry of dirHandle.values()) {
+        const entryRelPath =
+          relPath
+            ? `${relPath}/${entry.name}`
+            : entry.name;
+
+        const fullPath =
+          '/' + entryRelPath;
+
+        if (entry.kind === 'file') {
+          const file =
+            await entry.getFile();
+
+          filesData.push({
+            path: fullPath,
+            buffer:
+              new Uint8Array(
+                await file.arrayBuffer()
+              )
+          });
+
+        } else if (entry.kind === 'directory') {
+          await readDirRecursive(
+            entry,
+            entryRelPath,
+            filesData
+          );
+        }
+      }
+    }
+
+    async function verifyDirectoryAccess(handle) {
+      if (!handle) {
+        return false;
+      }
+
+      try {
+        let permission =
+          await handle.queryPermission({
+            mode: 'readwrite'
+          });
+
+        say(
+          `[websave] Permission before request: ${permission}`
+        );
+
+        if (permission !== 'granted') {
+          permission =
+            await handle.requestPermission({
+              mode: 'readwrite'
+            });
+
+          say(
+            `[websave] Permission after request: ${permission}`
+          );
+        }
+
+        if (permission !== 'granted') {
+          say(
+            '[websave] ERROR: Read/write permission was not granted.'
+          );
+
+          return false;
+        }
+
+        const testName =
+          `.gd_web_save_test_${Date.now()}`;
+
+        const testHandle =
+          await handle.getFileHandle(
+            testName,
+            { create: true }
+          );
+
+        const writable =
+          await testHandle.createWritable();
+
+        await writable.write(
+          new Uint8Array([
+            71, 68, 95, 87, 69, 66
+          ])
+        );
+
+        await writable.close();
+
+        await handle.removeEntry(
+          testName
+        );
+
+        say(
+          '[websave] Folder WRITE TEST PASSED.'
+        );
+
+        return true;
+
+      } catch (e) {
+        say(
+          `[websave] ERROR: Folder WRITE TEST FAILED: ${e.name || 'Error'}: ${e.message || e}`
+        );
+
+        return false;
+      }
+    }
+
+    const selectDirBtn = document.getElementById('selectDirBtn');
+
+    if (selectDirBtn) {
+      selectDirBtn.addEventListener(
+      'click',
+      async () => {
+        try {
+          if (!window.showDirectoryPicker) {
+            alert(
+              "Your browser does not support the Native File System API. Use Chrome or Edge."
+            );
+
+            return;
+          }
+
+          const handle =
+            await window.showDirectoryPicker({
+              mode: 'readwrite'
+            });
+
+          if (
+            !(await verifyDirectoryAccess(handle))
+          ) {
+            document.getElementById(
+              'dirStatus'
+            ).textContent =
+              "Folder selected, but write access failed.";
+
+            saveDirHandle = null;
+
+            return;
+          }
+
+          saveDirHandle = handle;
+
+          initialFilesData = [];
+
+          lastSyncedMeta.clear();
+          knownEngineFiles.clear();
+
+          /*
+           * Do NOT clear coreEngineFiles here.
+           *
+           * The core list belongs to the engine/data package and
+           * is independent from the user's selected save directory.
+           */
+
+          document.getElementById(
+            'dirStatus'
+          ).textContent =
+            `Folder linked: ${saveDirHandle.name} (read/write OK)`;
+
+          say(
+            `[websave] Linked native directory: ${saveDirHandle.name}`
+          );
+
+          /*
+           * Load the physical user's folder independently.
+           */
+          updateProgress(
+            94,
+            "Loading save folder..."
+          );
+
+          await readDirRecursive(
+            saveDirHandle,
+            '',
+            initialFilesData
+          );
+
+          say(
+            `[websave] Disk scan complete: ${initialFilesData.length} file(s) found.`
+          );
+
+          /*
+           * If the engine is already running, restore immediately.
+           * Otherwise launchEngine/onRuntimeInitialized will do it.
+           */
+          if (
+            window.Module &&
+            window.Module.FS
+          ) {
+            say(
+              '[websave] Engine already running; restoring disk files now.'
+            );
+
+            await applyInitialSaves();
+
+            if (engineFullyInitialized) {
+              await syncEngineSavesToDisk();
+            }
+
+          } else {
+            say(
+              '[websave] Engine not initialized yet; restore will happen before _gd_boot().'
+            );
+          }
+
+        } catch (e) {
+          console.error(e);
+
+          say(
+            `[websave] Folder selection FAILED: ${e.name || 'Error'}: ${e.message || e}`
+          );
+
+          document.getElementById(
+            'dirStatus'
+          ).textContent =
+            "Folder selection cancelled or failed.";
+        }
+      }
+    );
+
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * CORE FILESYSTEM SNAPSHOT
+     * ------------------------------------------------------------------
+     *
+     * This MUST run before applyInitialSaves().
+     *
+     * Anything present in the .data filesystem at this point is
+     * considered part of the core engine and is never persisted.
+     */
+
+    async function initializeCoreFilesystem() {
+      if (
+        coreFilesystemInitialized ||
+        !window.Module ||
+        !window.Module.FS
+      ) {
+        return;
+      }
+
+      const FS =
+        window.Module.FS;
+
+      coreEngineFiles.clear();
+
+      say(
+        '[websave] Beginning core filesystem initialization...'
+      );
+
+      updateProgress(
+        94,
+        "Initializing engine files..."
+      );
+
+      const entries = [];
+
+      let scanned = 0;
+      let files = 0;
+      let directories = 0;
+
+      /*
+       * This scan is intentionally done before user save restoration.
+       *
+       * The .data package is already mounted by Emscripten at this
+       * point, so these paths represent the original packaged files.
+       */
+      async function scanCoreDirectory(dirPath) {
+        let names;
+
+        try {
+          names =
+            FS.readdir(dirPath);
+        } catch (e) {
+          say(
+            `[websave] CORE FS.readdir FAILED ${dirPath}: ${e.message || e}`
+          );
+
+          return;
+        }
+
+        for (const name of names) {
+          if (
+            name === '.' ||
+            name === '..'
+          ) {
+            continue;
+          }
+
+          const fullPath =
+            dirPath === '/'
+              ? '/' + name
+              : dirPath + '/' + name;
+
+          let stat;
+
+          try {
+            stat =
+              FS.stat(fullPath);
+          } catch (e) {
+            say(
+              `[websave] CORE FS.stat FAILED ${fullPath}: ${e.message || e}`
+            );
+
+            continue;
+          }
+
+          scanned++;
+
+          if (FS.isDir(stat.mode)) {
+            directories++;
+
+            await scanCoreDirectory(
+              fullPath
+            );
+
+          } else if (FS.isFile(stat.mode)) {
+            files++;
+
+            coreEngineFiles.add(
+              fullPath
+            );
+
+            entries.push({
+              path: fullPath,
+              size: stat.size
+            });
+          }
+
+          /*
+           * Yield every 256 entries.
+           *
+           * This is considerably cheaper than yielding for every
+           * individual file while still allowing the loading UI to
+           * update during a 10K+ file scan.
+           */
+          if ((scanned & 255) === 0) {
+            const displayCount =
+              files + directories;
+
+            updateProgress(
+              94,
+              `Initializing engine files... ${displayCount}`
+            );
+
+            await yieldToBrowser();
+          }
+        }
+      }
+
+      const scanStarted =
+        performance.now();
+
+      await scanCoreDirectory('/');
+
+      const elapsed =
+        Math.round(
+          performance.now() - scanStarted
+        );
+
+      coreFilesystemInitialized = true;
+
+      say(
+        `[websave] CORE filesystem initialized: ${files} file(s), ${directories} director${directories === 1 ? 'y' : 'ies'} (${elapsed}ms).`
+      );
+
+      say(
+        `[websave] ${coreEngineFiles.size} core file(s) will NEVER be saved locally.`
+      );
+
+      updateProgress(
+        95,
+        `Core filesystem ready (${coreEngineFiles.size} files)`
+      );
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * RESTORE USER FILES
+     * ------------------------------------------------------------------
+     */
+
+    async function applyInitialSaves() {
+      if (
+        !window.Module ||
+        !window.Module.FS
+      ) {
+        say(
+          '[websave] Cannot restore: Engine FS is not initialized.'
+        );
+
+        return;
+      }
+
+      /*
+       * Never restore user files until the core snapshot exists.
+       *
+       * This is the key ordering guarantee.
+       */
+      if (!coreFilesystemInitialized) {
+        say(
+          '[websave] Cannot restore user files until core filesystem initialization is complete.'
+        );
+
+        await initializeCoreFilesystem();
+      }
+
+      const FS =
+        window.Module.FS;
+
+      let restored = 0;
+      let coreRestored = 0;
+      let userRestored = 0;
+
+      updateProgress(
+        97,
+        "Loading browser saves..."
+      );
+
+      for (
+        let i = 0;
+        i < initialFilesData.length;
+        i++
+      ) {
+        const {
+          path,
+          buffer
+        } = initialFilesData[i];
+
+        try {
+          const slash =
+            path.lastIndexOf('/');
+
+          const dir =
+            slash <= 0
+              ? '/'
+              : path.slice(
+                  0,
+                  slash
+                );
+
+          if (dir) {
+            try {
+              FS.mkdirTree(dir);
+            } catch (e) {}
+          }
+
+          FS.writeFile(
+            path,
+            buffer
+          );
+
+          lastSyncedMeta.set(
+            path,
+            {
+              size: buffer.length,
+              mtimeMs: 0
+            }
+          );
+
+          knownEngineFiles.add(
+            path
+          );
+
+          restored++;
+
+          if (
+            coreEngineFiles.has(path)
+          ) {
+            coreRestored++;
+
+          } else {
+            userRestored++;
+          }
+
+          /*
+           * Avoid producing 10K log messages here.
+           * Update the visible loading status in batches instead.
+           */
+          if (
+            (i & 127) === 0 ||
+            i === initialFilesData.length - 1
+          ) {
+            updateProgress(
+              97,
+              `Loading browser saves... ${i + 1}/${initialFilesData.length}`
+            );
+
+            await yieldToBrowser();
+          }
+
+        } catch (e) {
+          say(
+            `[websave] RESTORE FAILED ${path}: ${e.name || 'Error'}: ${e.message || e}`
+          );
+        }
+      }
+
+      userFolderRestored = true;
+
+      say(
+        `[websave] Restore complete: ${restored}/${initialFilesData.length} file(s).`
+      );
+
+      say(
+        `[websave] Restored ${coreRestored} core file(s) and ${userRestored} non-core user file(s).`
+      );
+
+      updateProgress(
+        98,
+        `Browser saves loaded (${restored} files)`
+      );
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * ENGINE FILESYSTEM WALK
+     * ------------------------------------------------------------------
+     */
+
+    async function walkEngineFS(
+      FS,
+      dirPath,
+      out
+    ) {
+      let entries;
+
+      try {
+        entries =
+          FS.readdir(dirPath);
+
+      } catch (e) {
+        say(
+          `[websave] FS.readdir FAILED ${dirPath}: ${e.message || e}`
+        );
+
+        return;
+      }
+
+      for (const name of entries) {
+        if (
+          name === '.' ||
+          name === '..'
+        ) {
+          continue;
+        }
+
+        const fullPath =
+          dirPath === '/'
+            ? '/' + name
+            : dirPath + '/' + name;
+
+        /*
+         * CORE FILES DO NOT NEED TO BE STAT()'D DURING SYNC.
+         *
+         * We already know they are never going to be saved.
+         *
+         * This is important for performance with ~10K default files.
+         */
+        if (
+          coreEngineFiles.has(fullPath)
+        ) {
+          continue;
+        }
+
+        let stat;
+
+        try {
+          stat =
+            FS.stat(fullPath);
+
+        } catch (e) {
+          say(
+            `[websave] FS.stat FAILED ${fullPath}: ${e.message || e}`
+          );
+
+          continue;
+        }
+
+        if (FS.isDir(stat.mode)) {
+          await walkEngineFS(
+            FS,
+            fullPath,
+            out
+          );
+
+        } else if (FS.isFile(stat.mode)) {
+          out.push({
+            path: fullPath,
+            size: stat.size,
+            mtimeMs:
+              stat.mtime
+                ? stat.mtime.getTime()
+                : 0
+          });
+        }
+      }
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * DISK DIRECTORY HELPERS
+     * ------------------------------------------------------------------
+     */
+
+    async function getOrCreateDirHandle(
+      rootHandle,
+      relDirPath
+    ) {
+      let handle =
+        rootHandle;
+
+      if (!relDirPath) {
+        return handle;
+      }
+
+      for (
+        const part of relDirPath
+          .split('/')
+          .filter(Boolean)
+      ) {
+        handle =
+          await handle.getDirectoryHandle(
+            part,
+            { create: true }
+          );
+      }
+
+      return handle;
+    }
+
+    async function writeEngineFileToDisk(
+      FS,
+      path,
+      size,
+      mtimeMs
+    ) {
+      /*
+       * Absolute final protection:
+       * core files can NEVER be saved.
+       */
+      if (
+        coreEngineFiles.has(path)
+      ) {
+        return false;
+      }
+
+      const data =
+        FS.readFile(path);
+
+      const relPath =
+        path.replace(/^\/+/, '');
+
+      if (!relPath) {
+        return false;
+      }
+
+      const slashIdx =
+        relPath.lastIndexOf('/');
+
+      const dirPart =
+        slashIdx === -1
+          ? ''
+          : relPath.slice(
+              0,
+              slashIdx
+            );
+
+      const fileName =
+        slashIdx === -1
+          ? relPath
+          : relPath.slice(
+              slashIdx + 1
+            );
+
+      const dirHandle =
+        await getOrCreateDirHandle(
+          saveDirHandle,
+          dirPart
+        );
+
+      const fileHandle =
+        await dirHandle.getFileHandle(
+          fileName,
+          { create: true }
+        );
+
+      const writable =
+        await fileHandle.createWritable();
+
+      try {
+        await writable.write(data);
+        await writable.close();
+
+      } catch (e) {
+        try {
+          await writable.abort();
+        } catch (_) {}
+
+        throw e;
+      }
+
+      lastSyncedMeta.set(
+        path,
+        {
+          size,
+          mtimeMs
+        }
+      );
+
+      knownEngineFiles.add(
+        path
+      );
+
+      say(
+        `[websave] SAVED ${path} -> ${relPath} (${size} bytes)`
+      );
+
+      return true;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * ENGINE -> DISK SYNC
+     * ------------------------------------------------------------------
+     */
+
+    async function syncEngineSavesToDisk() {
+      if (
+        !window.Module ||
+        !window.Module.FS ||
+        !saveDirHandle ||
+        syncInProgress
+      ) {
+        return;
+      }
+
+      /*
+       * Do absolutely nothing while the initial filesystem is still
+       * being classified/restored.
+       */
+      if (
+        !coreFilesystemInitialized ||
+        !userFolderRestored ||
+        !engineFullyInitialized
+      ) {
+        say(
+          '[websave] Sync ignored because engine initialization is not complete.'
+        );
+
+        return;
+      }
+
+      syncInProgress = true;
+
+      const FS =
+        window.Module.FS;
+
+      const started =
+        performance.now();
+
+      try {
+        const permission =
+          await saveDirHandle.queryPermission({
+            mode: 'readwrite'
+          });
+
+        if (permission !== 'granted') {
+          say(
+            `[websave] Permission is ${permission}; requesting read/write again.`
+          );
+
+          const requested =
+            await saveDirHandle.requestPermission({
+              mode: 'readwrite'
+            });
+
+          if (requested !== 'granted') {
+            say(
+              `[websave] ERROR: Permission request returned ${requested}.`
+            );
+
+            return;
+          }
+        }
+
+        const entries = [];
+
+        /*
+         * Because walkEngineFS immediately ignores coreEngineFiles,
+         * the 10K default files don't go through stat/read/save logic
+         * on every sync.
+         */
+        await walkEngineFS(
+          FS,
+          '/',
+          entries
+        );
+
+        say(
+          `[websave] SYNC scan found ${entries.length} non-core engine file(s).`
+        );
+
+        let saved = 0;
+        let unchanged = 0;
+
+        for (const {
+          path,
+          size,
+          mtimeMs
+        } of entries) {
+
+          /*
+           * Extra protection in case a path somehow appeared in the
+           * result after the core scan.
+           */
+          if (
+            coreEngineFiles.has(path)
+          ) {
+            continue;
+          }
+
+          const meta =
+            lastSyncedMeta.get(path);
+
+          if (
+            !forceFullSync &&
+            meta &&
+            meta.size === size &&
+            meta.mtimeMs === mtimeMs
+          ) {
+            unchanged++;
+            knownEngineFiles.add(path);
+            continue;
+          }
+
+          if (
+            await writeEngineFileToDisk(
+              FS,
+              path,
+              size,
+              mtimeMs
+            )
+          ) {
+            saved++;
+          }
+        }
+
+        /*
+         * Only track/delete NON-CORE files.
+         *
+         * Core files are deliberately excluded from knownEngineFiles,
+         * so they can never cause a physical disk deletion either.
+         */
+        const currentPaths =
+          new Set(
+            entries.map(
+              e => e.path
+            )
+          );
+
+        for (
+          const oldPath
+          of Array.from(knownEngineFiles)
+        ) {
+          /*
+           * Core files should never be in this set, but keep this
+           * guard as an additional safety layer.
+           */
+          if (
+            coreEngineFiles.has(oldPath)
+          ) {
+            knownEngineFiles.delete(
+              oldPath
+            );
+
+            lastSyncedMeta.delete(
+              oldPath
+            );
+
+            continue;
+          }
+
+          if (
+            currentPaths.has(oldPath)
+          ) {
+            continue;
+          }
+
+          try {
+            const relPath =
+              oldPath.replace(
+                /^\/+/,
+                ''
+              );
+
+            const slashIdx =
+              relPath.lastIndexOf('/');
+
+            const dirPart =
+              slashIdx === -1
+                ? ''
+                : relPath.slice(
+                    0,
+                    slashIdx
+                  );
+
+            const fileName =
+              slashIdx === -1
+                ? relPath
+                : relPath.slice(
+                    slashIdx + 1
+                  );
+
+            const dirHandle =
+              await getOrCreateDirHandle(
+                saveDirHandle,
+                dirPart
+              );
+
+            await dirHandle.removeEntry(
+              fileName
+            );
+
+            knownEngineFiles.delete(
+              oldPath
+            );
+
+            lastSyncedMeta.delete(
+              oldPath
+            );
+
+            say(
+              `[websave] DELETED ${oldPath} from physical disk.`
+            );
+
+          } catch (e) {
+            if (
+              e.name === 'NotFoundError'
+            ) {
+              knownEngineFiles.delete(
+                oldPath
+              );
+
+              lastSyncedMeta.delete(
+                oldPath
+              );
+
+            } else {
+              say(
+                `[websave] DELETE FAILED ${oldPath}: ${e.name || 'Error'}: ${e.message || e}`
+              );
+            }
+          }
+        }
+
+        forceFullSync = false;
+
+        say(
+          `[websave] SYNC complete: saved=${saved}, unchanged=${unchanged}, elapsed=${Math.round(performance.now() - started)}ms.`
+        );
+
+      } catch (e) {
+        say(
+          `[websave] SYNC FAILED: ${e.name || 'Error'}: ${e.message || e}`
+        );
+
+      } finally {
+        syncInProgress = false;
+      }
+    }
+
+    async function syncBrowserSaves() {
+      if (
+        !window.Module ||
+        !window.Module.FS ||
+        !saveStorageEnabled ||
+        syncInProgress ||
+        !coreFilesystemInitialized ||
+        !userFolderRestored ||
+        !engineFullyInitialized
+      ) {
+        return;
+      }
+
+      syncInProgress = true;
+
+      try {
+        const entries = [];
+
+        await walkEngineFS(
+          window.Module.FS,
+          '/',
+          entries
+        );
+
+        const currentPaths = new Set();
+
+        for (const entry of entries) {
+          if (
+            coreEngineFiles.has(entry.path) ||
+            !isUserSavePath(entry.path)
+          ) {
+            continue;
+          }
+
+          currentPaths.add(entry.path);
+
+          const meta = lastSyncedMeta.get(entry.path);
+
+          if (
+            !forceFullSync &&
+            meta &&
+            meta.size === entry.size &&
+            meta.mtimeMs === entry.mtimeMs
+          ) {
+            knownEngineFiles.add(entry.path);
+            continue;
+          }
+
+          const data = window.Module.FS.readFile(entry.path);
+          await storeBrowserSave(entry.path, data);
+
+          lastSyncedMeta.set(entry.path, {
+            size: entry.size,
+            mtimeMs: entry.mtimeMs
+          });
+
+          knownEngineFiles.add(entry.path);
+
+          say(
+            `[websave] Saved ${entry.path} to browser storage.`
+          );
+        }
+
+        for (const oldPath of Array.from(knownEngineFiles)) {
+          if (
+            !isUserSavePath(oldPath) ||
+            currentPaths.has(oldPath)
+          ) {
+            continue;
+          }
+
+          await deleteBrowserSave(oldPath);
+          knownEngineFiles.delete(oldPath);
+          lastSyncedMeta.delete(oldPath);
+
+          say(
+            `[websave] Removed ${oldPath} from browser storage.`
+          );
+        }
+
+        forceFullSync = false;
+      } catch (e) {
+        say(
+          `[websave] Browser save sync failed: ${e.message || e}`
+        );
+      } finally {
+        syncInProgress = false;
+      }
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * FIRST FRAME
+     * ------------------------------------------------------------------
+     */
+
+    window.gdFirstFrame =
+      function() {
+        say(
+          '[system] Engine rendered first frame.'
+        );
+
+        if (
+          window.__gdAckFocus
+        ) {
+          window.__gdAckFocus(true);
+        }
+      };
+
+    /*
+     * ------------------------------------------------------------------
+     * ENGINE LAUNCH
+     * ------------------------------------------------------------------
+     */
+
+    function launchEngine(
+      wasmBuffer,
+      dataBuffer
+    ) {
+      updateProgress(
+        95,
+        "Initializing Runtime..."
+      );
+
+      window.Module = {
+        canvas:
+          document.getElementById('canvas'),
+
+        wasmBinary:
+          wasmBuffer,
+
+        gdInputQueue: [],
+
+        gdCursorPos: [0, 0],
+
+        gdKeyState:
+          new Uint8Array(256),
+
+        getPreloadedPackage:
+          function() {
+            return dataBuffer;
+          },
+
+        print:
+          function(text) {
+            say(text);
+          },
+
+        printErr:
+          function(text) {
+            say(text);
+          },
+
+        setStatus:
+          function(text) {
+            if (text) {
+              say(text);
+            }
+          },
+
+        onAbort:
+          function(what) {
+            triggerAbort(what);
+          },
+
+        onRuntimeInitialized:
+          async function() {
+            say(
+              '[system] WebAssembly runtime initialized.'
+            );
+
+            const FS =
+              window.Module.FS;
+
+            try {
+              /*
+               * ------------------------------------------------------
+               * STEP 1:
+               * Snapshot the original .data filesystem.
+               *
+               * User files MUST NOT be restored before this.
+               * ------------------------------------------------------
+               */
+
+              updateProgress(
+                94,
+                "Initializing engine files..."
+              );
+
+              say(
+                '[websave] Scanning original engine filesystem before loading saves...'
+              );
+
+              await initializeCoreFilesystem();
+
+              /*
+               * ------------------------------------------------------
+               * STEP 2:
+               * Restore the actual user's folder.
+               * ------------------------------------------------------
+               */
+
+              if (saveStorageEnabled) {
+                say(
+                  '[websave] Core scan complete. Loading browser saves...'
+                );
+
+                await loadBrowserSaves();
+                await applyInitialSaves();
+
+              } else {
+                say(
+                  '[websave] Browser save storage is unavailable.'
+                );
+
+                userFolderRestored = true;
+              }
+
+              /*
+               * Keep the engine's expected working directory.
+               */
+              try {
+                if (FS) {
+                  FS.chdir('/Resources');
+                }
+
+              } catch (e) {
+                say(
+                  `[websave] Could not chdir to /Resources: ${e.message || e}`
+                );
+              }
+
+              /*
+               * ------------------------------------------------------
+               * STEP 3:
+               * Only now is the engine allowed to begin saving.
+               *
+               * _gd_boot has NOT been called yet, so the engine is
+               * still considered pre-init.
+               * ------------------------------------------------------
+               */
+
+              updateProgress(
+                98,
+                "Starting game..."
+              );
+
+              if (saveStorageEnabled) {
+                /*
+                 * Don't start the interval until the game has actually
+                 * completed its boot.
+                 *
+                 * This prevents pre-init writes from being mistaken
+                 * for user save files.
+                 */
+                if (saveSyncTimer) {
+                  clearInterval(
+                    saveSyncTimer
+                  );
+
+                  saveSyncTimer = null;
+                }
+
+                forceFullSync = true;
+
+                say(
+                  '[websave] Save synchronization armed; waiting for game initialization.'
+                );
+
+              } else {
+                say(
+                  '[websave] Saves are RAM-only because browser storage is unavailable.'
+                );
+              }
+
+            } catch (e) {
+              say(
+                `[websave] Runtime save setup FAILED: ${e.name || 'Error'}: ${e.message || e}`
+              );
+            }
+
+            /*
+             * --------------------------------------------------------
+             * BOOT THE ACTUAL GAME
+             * --------------------------------------------------------
+             */
+
+            try {
+              const finishInit =
+                () => {
+                  /*
+                   * This is the important boundary.
+                   *
+                   * Anything the game attempted to create/write before
+                   * this point is considered initialization activity.
+                   *
+                   * Because core files were captured before the user
+                   * folder was restored, those original package files
+                   * remain permanently excluded from saving.
+                   */
+
+                  engineFullyInitialized = true;
+
+                  say(
+                    '[system] Game engine initialization complete.'
+                  );
+
+                  /*
+                   * Start disk synchronization ONLY after initialization.
+                   */
+                  if (saveStorageEnabled) {
+                    if (saveSyncTimer) {
+                      clearInterval(
+                        saveSyncTimer
+                      );
+                    }
+
+                    forceFullSync = true;
+
+                    saveSyncTimer =
+                      setInterval(
+                        () => {
+                            syncBrowserSaves()
+                            .catch(
+                              e =>
+                                say(
+                                  `[websave] Background sync exception: ${e.message || e}`
+                                )
+                            );
+                        },
+                        2000
+                      );
+
+                    say(
+                      '[websave] Background browser save sync started (2s).'
+                    );
+
+                    /*
+                     * Do the first post-init sync immediately.
+                     */
+                    syncBrowserSaves()
+                      .catch(
+                        e =>
+                          say(
+                            `[websave] Initial post-init sync exception: ${e.message || e}`
+                          )
+                      );
+                  }
+
+                  say(
+                    '[system] Game engine inputs unlocked.'
+                  );
+
+                  window.__gdInputReady =
+                    true;
+                };
+
+              if (
+                typeof window.Module._gd_boot ===
+                'function'
+              ) {
+                say(
+                  '[system] Calling _gd_boot()...'
+                );
+
+                const r =
+                  window.Module._gd_boot();
+
+                if (
+                  r &&
+                  typeof r.then ===
+                    'function'
+                ) {
+                  let __bootSettled =
+                    false;
+
+                  const __bootWrap =
+                    function(fn) {
+                      return function(x) {
+                        if (
+                          __bootSettled
+                        ) {
+                          return;
+                        }
+
+                        __bootSettled =
+                          true;
+
+                        fn(x);
+                      };
+                    };
+
+                  r.then(
+                    __bootWrap(
+                      finishInit
+                    )
+                  ).catch(
+                    __bootWrap(
+                      function(err) {
+                        say(
+                          '[error] Boot promise rejected: ' +
+                          err
+                        );
+
+                        finishInit();
+                      }
+                    )
+                  );
+
+                  setTimeout(
+                    function() {
+                      if (
+                        __bootSettled
+                      ) {
+                        return;
+                      }
+
+                      __bootSettled =
+                        true;
+
+                      say(
+                        '[warning] _gd_boot() promise never settled after 5s — forcing input unlock.'
+                      );
+
+                      finishInit();
+                    },
+                    5000
+                  );
+
+                } else {
+                  finishInit();
+                }
+
+              } else {
+                say(
+                  '[warning] _gd_boot export not found. Assuming automatic boot.'
+                );
+
+                finishInit();
+              }
+
+            } catch (e) {
+              say(
+                '[error] Engine boot exception: ' +
+                e.message
+              );
+
+              /*
+               * Treat this as the end of initialization as well,
+               * otherwise the filesystem will remain permanently
+               * unsynchronized.
+               */
+              engineFullyInitialized =
+                true;
+
+              window.__gdInputReady =
+                true;
+            }
+
+            updateProgress(
+              100,
+              "Ready!"
+            );
+
+            setTimeout(
+              () => {
+                loadingOverlay.classList.add(
+                  'hidden'
+                );
+              },
+              300
+            );
+          }
+      };
+
+      const script =
+        document.createElement('script');
+
+      script.src =
+        'gd_web.js';
+
+      script.onerror =
+        function() {
+          triggerAbort(
+            "Failed to load local runtime script 'gd_web.js'. Ensure it is in the same folder."
+          );
+        };
+
+      document.body.appendChild(
+        script
+      );
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * PLAY BUTTON
+     * ------------------------------------------------------------------
+     */
+
+    document.getElementById(
+      'playBtn'
+    ).addEventListener(
+      'click',
+      async () => {
+        startScreen.classList.add(
+          'hidden'
+        );
+
+        loadingOverlay.classList.remove(
+          'hidden'
+        );
+
+        activeProxyPrefix = GD_PROXY_PREFIX;
+
+        say(
+          `[proxy] Enabled GD proxy prefix: ${activeProxyPrefix}`
+        );
+
+        try {
+          updateProgress(5, "Loading local engine files...");
+
+          const releaseBaseUrl =
+            'https://github.com/yoylecakefake/gdwasm/releases/download/Release/';
+
+          const wasmUrl =
+            `${ASSET_PROXY_PREFIX}${encodeURIComponent(
+              `${releaseBaseUrl}gd_web.wasm`
+            )}`;
+
+          const dataUrl =
+            `${ASSET_PROXY_PREFIX}${encodeURIComponent(
+              `${releaseBaseUrl}gd_web.data`
+            )}`;
+
+          const wasmBuffer = await fetchAsset(
+            'gd_web.wasm',
+            wasmUrl,
+            'gd_web.wasm',
+            5,
+            40
+          );
+
+          const dataBuffer = await fetchAsset(
+            'gd_web.data',
+            dataUrl,
+            'gd_web.data',
+            45,
+            45
+          );
+
+          launchEngine(wasmBuffer, dataBuffer);
+
+        } catch (err) {
+        triggerAbort(err.message || "Failed to load assets.");
+        }
+      }
+    );
+  </script>
+
+  <script>
+    /*
+     * ------------------------------------------------------------------
+     * GEOMETRY DASH INPUT BRIDGE
+     * ------------------------------------------------------------------
+     */
+
+    (function () {
+      const el =
+        document.getElementById(
+          'canvas'
+        );
+
+      const WM_MOUSEMOVE = 0x200;
+      const WM_LBUTTONDOWN = 0x201;
+      const WM_LBUTTONUP = 0x202;
+      const WM_RBUTTONDOWN = 0x204;
+      const WM_RBUTTONUP = 0x205;
+      const WM_MBUTTONDOWN = 0x207;
+      const WM_MBUTTONUP = 0x208;
+
+      function ready() {
+        return (
+          window.__gdInputReady ===
+          true
+        );
+      }
+
+      function overCanvas(e) {
+        var r;
+
+        if (
+          !ready() ||
+          !el
+        ) {
+          return false;
+        }
+
+        if (
+          e.target &&
+          e.target.closest &&
+          e.target.closest(
+            '#console, #startScreen, #abortScreen, a, button, input, textarea, select'
+          )
+        ) {
+          return false;
+        }
+
+        r =
+          el.getBoundingClientRect();
+
+        return (
+          e.clientX >= r.left &&
+          e.clientX < r.right &&
+          e.clientY >= r.top &&
+          e.clientY < r.bottom
+        );
+      }
+
+      function pos(e) {
+        const r =
+          el.getBoundingClientRect();
+
+        const x =
+          Math.max(
+            0,
+            Math.min(
+              1919,
+              Math.round(
+                (e.clientX - r.left) *
+                1920 /
+                r.width
+              )
+            )
+          );
+
+        const y =
+          Math.max(
+            0,
+            Math.min(
+              1079,
+              Math.round(
+                (e.clientY - r.top) *
+                1080 /
+                r.height
+              )
+            )
+          );
+
+        Module.gdCursorPos[0] =
+          x;
+
+        Module.gdCursorPos[1] =
+          y;
+
+        return (
+          (x & 0xffff) |
+          ((y & 0xffff) << 16)
+        );
+      }
+
+      function push(
+        m,
+        w,
+        l
+      ) {
+        Module.gdInputQueue.push([
+          m | 0,
+          w | 0,
+          l | 0
+        ]);
+      }
+
+      var ackedFocus =
+        false;
+
+      function ackFocus() {
+        if (ackedFocus) {
+          return;
+        }
+
+        ackedFocus =
+          true;
+
+        push(
+          0x0006,
+          1,
+          0
+        );
+
+        push(
+          0x0007,
+          0,
+          0
+        );
+
+        push(
+          0x001c,
+          1,
+          0
+        );
+      }
+
+      window.__gdAckFocus =
+        ackFocus;
+
+      window.addEventListener(
+        'mousedown',
+        function(e) {
+          if (!overCanvas(e)) {
+            return;
+          }
+
+          var m =
+            e.button === 2
+              ? WM_RBUTTONDOWN
+              : (
+                  e.button === 1
+                    ? WM_MBUTTONDOWN
+                    : WM_LBUTTONDOWN
+                );
+
+          var w =
+            e.button === 2
+              ? 2
+              : (
+                  e.button === 1
+                    ? 16
+                    : 1
+                );
+
+          push(
+            m,
+            w,
+            pos(e)
+          );
+
+          e.preventDefault();
+        }
+      );
+
+      window.addEventListener(
+        'mouseup',
+        function(e) {
+          if (!ready()) {
+            return;
+          }
+
+          var m =
+            e.button === 2
+              ? WM_RBUTTONUP
+              : (
+                  e.button === 1
+                    ? WM_MBUTTONUP
+                    : WM_LBUTTONUP
+                );
+
+          push(
+            m,
+            0,
+            pos(e)
+          );
+
+          if (e.target === el) {
+            e.preventDefault();
+          }
+        }
+      );
+
+      function touchPos(t) {
+        const r =
+          el.getBoundingClientRect();
+
+        const x =
+          Math.max(
+            0,
+            Math.min(
+              1919,
+              Math.round(
+                (t.clientX - r.left) *
+                1920 /
+                r.width
+              )
+            )
+          );
+
+        const y =
+          Math.max(
+            0,
+            Math.min(
+              1079,
+              Math.round(
+                (t.clientY - r.top) *
+                1080 /
+                r.height
+              )
+            )
+          );
+
+        Module.gdCursorPos[0] =
+          x;
+
+        Module.gdCursorPos[1] =
+          y;
+
+        return (
+          (x & 0xffff) |
+          ((y & 0xffff) << 16)
+        );
+      }
+
+      window.addEventListener(
+        'touchstart',
+        function(e) {
+          var t =
+            e.changedTouches[0];
+
+          if (
+            !t ||
+            !overCanvas(t)
+          ) {
+            return;
+          }
+
+          push(
+            WM_LBUTTONDOWN,
+            1,
+            touchPos(t)
+          );
+
+          e.preventDefault();
+        },
+        { passive: false }
+      );
+
+      window.addEventListener(
+        'touchmove',
+        function(e) {
+          if (!ready()) {
+            return;
+          }
+      
+          var t = e.changedTouches[0];
+          if (!t || !overCanvas(t)) { // Added overCanvas check here
+            return;
+          }
+      
+          var q = Module.gdInputQueue;
+          var l = touchPos(t);
+      
+          if (q.length && q[q.length - 1][0] === WM_MOUSEMOVE) {
+            q[q.length - 1] = [WM_MOUSEMOVE, 1, l];
+          } else {
+            q.push([WM_MOUSEMOVE, 1, l]);
+          }
+        
+          e.preventDefault();
+        },
+        { passive: false }
+      );
+
+
+      window.addEventListener(
+        'touchend',
+        function(e) {
+          if (!ready()) {
+            return;
+          }
+
+        var t = e.changedTouches[0];
+          if (!t || !overCanvas(t)) { // Added overCanvas check here
+            return;
+          }
+
+          push(WM_LBUTTONUP, 0, touchPos(t));
+          e.preventDefault();
+        },
+        { passive: false }
+      );
+
+
+      window.addEventListener(
+        'mousemove',
+        function(e) {
+          if (!ready()) {
+            return;
+          }
+
+          var q =
+            Module.gdInputQueue;
+
+          var w =
+            (e.buttons & 1)
+              ? 1
+              : 0;
+
+          var l =
+            pos(e);
+
+          if (
+            q.length &&
+            q[q.length - 1][0] ===
+              WM_MOUSEMOVE
+          ) {
+            q[q.length - 1] = [
+              WM_MOUSEMOVE,
+              w,
+              l
+            ];
+          } else {
+            q.push([
+              WM_MOUSEMOVE,
+              w,
+              l
+            ]);
+          }
+        }
+      );
+
+      window.addEventListener(
+        'wheel',
+        function(e) {
+          if (!overCanvas(e)) {
+            return;
+          }
+
+          var lp =
+            pos(e);
+
+          var dv =
+            -e.deltaY;
+
+          var dh =
+            e.deltaX;
+
+          if (
+            Math.abs(dv) >=
+            Math.abs(dh)
+          ) {
+            var notch =
+              dv > 0
+                ? 120
+                : -120;
+
+            push(
+              0x020A,
+              (notch & 0xFFFF) << 16,
+              lp
+            );
+
+          } else {
+            var hnotch =
+              dh > 0
+                ? -120
+                : 120;
+
+            push(
+              0x020E,
+              (hnotch & 0xFFFF) << 16,
+              lp
+            );
+          }
+
+          e.preventDefault();
+        },
+        { passive: false }
+      );
+
+      el.addEventListener(
+        'contextmenu',
+        function(e) {
+          e.preventDefault();
+        }
+      );
+
+      el.tabIndex = 0;
+
+      el.addEventListener(
+        'mousedown',
+        function() {
+          el.focus();
+        }
+      );
+
+      var VK = {
+        'Escape': 0x1B,
+        'Space': 0x20,
+        'Enter': 0x0D,
+        'Backspace': 0x08,
+        'Tab': 0x09,
+        'ArrowLeft': 0x25,
+        'ArrowUp': 0x26,
+        'ArrowRight': 0x27,
+        'ArrowDown': 0x28,
+        'KeyW': 0x57,
+        'KeyA': 0x41,
+        'KeyS': 0x53,
+        'KeyD': 0x44,
+        'KeyQ': 0x51,
+        'KeyE': 0x45,
+        'KeyR': 0x52,
+        'KeyF': 0x46,
+        'KeyP': 0x50
+      };
+
+      var SCAN = {
+        'Escape': 0x01,
+        'Space': 0x39,
+        'Enter': 0x1C,
+        'Backspace': 0x0E,
+        'Tab': 0x0F,
+        'ArrowLeft': 0x4B,
+        'ArrowUp': 0x48,
+        'ArrowRight': 0x4D,
+        'ArrowDown': 0x50,
+        'KeyW': 0x11,
+        'KeyA': 0x1E,
+        'KeyS': 0x1F,
+        'KeyD': 0x20,
+        'KeyQ': 0x10,
+        'KeyE': 0x12,
+        'KeyR': 0x13,
+        'KeyF': 0x21,
+        'KeyP': 0x19
+      };
+
+      var EXT = {
+        'ArrowLeft': 1,
+        'ArrowUp': 1,
+        'ArrowRight': 1,
+        'ArrowDown': 1
+      };
+
+      function keyEvent(
+        e,
+        down
+      ) {
+        if (!ready()) {
+          return;
+        }
+
+        try {
+          if (
+            window.getSelection &&
+            String(
+              window.getSelection()
+            ) !== ''
+          ) {
+            return;
+          }
+        } catch (err) {}
+
+        var vk =
+          VK[e.code] ||
+          e.keyCode ||
+          0;
+
+        if (down) {
+          var ch = 0;
+
+          if (
+            e.key &&
+            e.key.length === 1
+          ) {
+            ch =
+              e.key.charCodeAt(0);
+
+          } else if (
+            e.code ===
+            'Backspace'
+          ) {
+            ch = 0x08;
+
+          } else if (
+            e.code ===
+            'Enter'
+          ) {
+            ch = 0x0D;
+          }
+
+          if (ch) {
+            var clp =
+              1 |
+              (
+                (SCAN[e.code] || 0)
+                << 16
+              );
+
+            if (EXT[e.code]) {
+              clp |= 0x1000000;
+            }
+
+            push(
+              0x0102,
+              ch,
+              clp
+            );
+          }
+        }
+
+        if (!vk) {
+          return;
+        }
+
+        Module.gdKeyState[
+          vk & 0xff
+        ] =
+          down
+            ? 1
+            : 0;
+
+        var scan =
+          SCAN[e.code] || 0;
+
+        var lp =
+          1 |
+          (scan << 16);
+
+        if (EXT[e.code]) {
+          lp |= 0x1000000;
+        }
+
+        if (!down) {
+          lp |= -1073741824;
+        }
+
+        push(
+          down
+            ? 0x100
+            : 0x101,
+          vk,
+          lp
+        );
+
+        if (
+          e.code === 'Space' ||
+          e.code.startsWith('Arrow') ||
+          e.code === 'Escape'
+        ) {
+          e.preventDefault();
+        }
+      }
+
+      window.addEventListener(
+        'keydown',
+        function(e) {
+          keyEvent(e, true);
+        }
+      );
+
+      window.addEventListener(
+        'keyup',
+        function(e) {
+          keyEvent(e, false);
+        }
+      );
+    })();
+  </script>
+
+</body>
+</html>
